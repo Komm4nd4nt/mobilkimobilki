@@ -78,6 +78,7 @@ namespace RacingMobile.Multiplayer
                 return;
             }
 
+            NetworkConfigSynchronizer.ApplyConfiguration();
             ResolveCarPrefab();
             CleanupScenePlaceholders();
             SetTransportAddress(GetIpInput(), defaultPort);
@@ -108,6 +109,7 @@ namespace RacingMobile.Multiplayer
                 return;
             }
 
+            NetworkConfigSynchronizer.ApplyConfiguration();
             ResolveCarPrefab();
             CleanupScenePlaceholders();
             SetTransportAddress(GetIpInput(), defaultPort);
@@ -156,6 +158,9 @@ namespace RacingMobile.Multiplayer
         {
             if (!NetworkManager.Singleton.IsServer) return;
 
+            // If Netcode already handles spawning via PlayerPrefab, skip manual instantiation
+            if (NetworkManager.Singleton.NetworkConfig.PlayerPrefab != null) return;
+
             // Avoid duplicate spawns for the same client ID
             if (spawnedClients.Contains(clientId)) return;
             spawnedClients.Add(clientId);
@@ -177,7 +182,8 @@ namespace RacingMobile.Multiplayer
                 int index = nextSpawnIndex % spawnGridPoints.Count;
                 if (spawnGridPoints[index] != null)
                 {
-                    spawnPos = spawnGridPoints[index].position;
+                    // Raise spawn position by 0.55m so WheelColliders don't spawn buried inside the ground and explode upwards
+                    spawnPos = spawnGridPoints[index].position + Vector3.up * 0.55f;
                     spawnRot = spawnGridPoints[index].rotation;
                 }
                 nextSpawnIndex++;
@@ -186,10 +192,17 @@ namespace RacingMobile.Multiplayer
             {
                 // Default grid offset
                 float offset = (float)clientId;
-                spawnPos = new Vector3(offset * 4f, 0.5f, -offset * 6f);
+                spawnPos = new Vector3(offset * 4f, 0.55f, -offset * 6f);
             }
 
             GameObject playerCar = Instantiate(networkCarPrefab, spawnPos, spawnRot);
+            Rigidbody carRb = playerCar.GetComponent<Rigidbody>();
+            if (carRb != null)
+            {
+                carRb.linearVelocity = Vector3.zero;
+                carRb.angularVelocity = Vector3.zero;
+            }
+
             NetworkObject netObj = playerCar.GetComponent<NetworkObject>();
             if (netObj != null)
             {

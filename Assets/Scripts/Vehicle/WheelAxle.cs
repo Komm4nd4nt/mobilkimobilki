@@ -27,7 +27,7 @@ namespace RacingMobile.Vehicle
         public bool IsHandbrake = false;    // Affected by handbrake (rear axle)
 
         [Header("Anti-Roll Bar")]
-        public float AntiRollForce = 5000f; // Stabilizes against roll-over in sharp turns
+        public float AntiRollForce = 3500f; // Stabilizes against roll-over in sharp turns
 
         [Header("Visual Orientation")]
         [Tooltip("Euler angle offset applied to the visual wheel mesh. Default is (0, 0, -90) so cylinder wheels lie flat on the axle.")]
@@ -47,8 +47,19 @@ namespace RacingMobile.Vehicle
             if (col == null || visual == null) return;
 
             col.GetWorldPose(out Vector3 position, out Quaternion rotation);
-            visual.position = position;
-            visual.rotation = rotation * Quaternion.Euler(VisualRotationOffset);
+
+            // Setting local coordinates relative to the chassis prevents visual jitter/lag
+            // caused by Rigidbody interpolation between physics steps.
+            if (visual.parent != null)
+            {
+                visual.localPosition = visual.parent.InverseTransformPoint(position);
+                visual.localRotation = Quaternion.Inverse(visual.parent.rotation) * rotation * Quaternion.Euler(VisualRotationOffset);
+            }
+            else
+            {
+                visual.position = position;
+                visual.rotation = rotation * Quaternion.Euler(VisualRotationOffset);
+            }
         }
 
         /// <summary>
@@ -58,22 +69,34 @@ namespace RacingMobile.Vehicle
         {
             if (LeftWheelCollider == null || RightWheelCollider == null || rb == null) return;
 
+            bool groundedL = LeftWheelCollider.GetGroundHit(out WheelHit hitL);
+            bool groundedR = RightWheelCollider.GetGroundHit(out WheelHit hitR);
+
+            // If neither wheel touches the ground, anti-roll bar has no ground leverage
+            if (!groundedL && !groundedR) return;
+
             float travelL = 1.0f;
             float travelR = 1.0f;
 
-            bool groundedL = LeftWheelCollider.GetGroundHit(out WheelHit hitL);
             if (groundedL)
             {
                 travelL = (-LeftWheelCollider.transform.InverseTransformPoint(hitL.point).y - LeftWheelCollider.radius) / LeftWheelCollider.suspensionDistance;
+                travelL = Mathf.Clamp01(travelL);
             }
 
-            bool groundedR = RightWheelCollider.GetGroundHit(out WheelHit hitR);
             if (groundedR)
             {
                 travelR = (-RightWheelCollider.transform.InverseTransformPoint(hitR.point).y - RightWheelCollider.radius) / RightWheelCollider.suspensionDistance;
+                travelR = Mathf.Clamp01(travelR);
             }
 
             float antiRollForce = (travelL - travelR) * AntiRollForce;
+
+            // Dampen force when only one wheel is grounded to prevent violent suspension bounce spikes
+            if (!groundedL || !groundedR)
+            {
+                antiRollForce *= 0.5f;
+            }
 
             if (groundedL)
             {

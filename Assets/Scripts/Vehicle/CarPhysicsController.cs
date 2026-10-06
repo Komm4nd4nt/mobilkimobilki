@@ -21,8 +21,8 @@ namespace RacingMobile.Vehicle
     public class CarPhysicsController : MonoBehaviour
     {
         [Header("Wheel Axles")]
-        [SerializeField] private WheelAxle frontAxle = new WheelAxle { AxleName = "Front Axle", IsMotor = true, IsSteering = true, IsHandbrake = false, AntiRollForce = 6000f, VisualRotationOffset = new Vector3(0f, 0f, -90f) };
-        [SerializeField] private WheelAxle rearAxle = new WheelAxle { AxleName = "Rear Axle", IsMotor = true, IsSteering = false, IsHandbrake = true, AntiRollForce = 6000f, VisualRotationOffset = new Vector3(0f, 0f, -90f) };
+        [SerializeField] private WheelAxle frontAxle = new WheelAxle { AxleName = "Front Axle", IsMotor = true, IsSteering = true, IsHandbrake = false, AntiRollForce = 3500f, VisualRotationOffset = new Vector3(0f, 0f, -90f) };
+        [SerializeField] private WheelAxle rearAxle = new WheelAxle { AxleName = "Rear Axle", IsMotor = true, IsSteering = false, IsHandbrake = true, AntiRollForce = 3500f, VisualRotationOffset = new Vector3(0f, 0f, -90f) };
 
         [Header("Engine & Performance")]
         [SerializeField] private DriveTrainType driveType = DriveTrainType.AllWheelDrive;
@@ -61,7 +61,7 @@ namespace RacingMobile.Vehicle
         [Tooltip("Downforce coefficient pushing the car into the track at high speeds")]
         [SerializeField] private float downforceCoefficient = 60f;
         [Tooltip("Center of mass offset. Lowering Y improves roll stability dramatically")]
-        [SerializeField] private Vector3 centerOfMassOffset = new Vector3(0f, -0.45f, 0.05f);
+        [SerializeField] private Vector3 centerOfMassOffset = new Vector3(0f, -0.25f, 0.05f);
 
         [Header("Multiplayer & Control Mode")]
         [Tooltip("When true, car is driven by local player inputs. When false, state is driven by network sync")]

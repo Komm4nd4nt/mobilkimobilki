@@ -61,12 +61,31 @@ namespace RacingMobile.Multiplayer
                 // Local player: full active physics simulation
                 rb.isKinematic = false;
                 rb.interpolation = RigidbodyInterpolation.Interpolate;
+                SetWheelCollidersEnabled(true);
             }
             else
             {
                 // Remote opponent: kinematic movement driven by snapshot interpolation
                 rb.isKinematic = true;
                 rb.interpolation = RigidbodyInterpolation.None;
+                SetWheelCollidersEnabled(false);
+            }
+        }
+
+        private void SetWheelCollidersEnabled(bool isEnabled)
+        {
+            if (car == null) return;
+
+            if (car.FrontAxle != null)
+            {
+                if (car.FrontAxle.LeftWheelCollider != null) car.FrontAxle.LeftWheelCollider.enabled = isEnabled;
+                if (car.FrontAxle.RightWheelCollider != null) car.FrontAxle.RightWheelCollider.enabled = isEnabled;
+            }
+
+            if (car.RearAxle != null)
+            {
+                if (car.RearAxle.LeftWheelCollider != null) car.RearAxle.LeftWheelCollider.enabled = isEnabled;
+                if (car.RearAxle.RightWheelCollider != null) car.RearAxle.RightWheelCollider.enabled = isEnabled;
             }
         }
 
@@ -145,8 +164,10 @@ namespace RacingMobile.Multiplayer
                 float timeSinceLatest = (float)(renderTime - latest.Timestamp);
                 if (timeSinceLatest <= maxExtrapolationTime)
                 {
-                    // Linear extrapolation
-                    Vector3 extrapolatedPos = latest.Position + latest.Velocity * timeSinceLatest;
+                    // Linear extrapolation (horizontal to prevent suspension bounce spikes)
+                    Vector3 horizontalVel = new Vector3(latest.Velocity.x, 0f, latest.Velocity.z);
+                    Vector3 extrapolatedPos = latest.Position + horizontalVel * timeSinceLatest;
+                    extrapolatedPos.y = latest.Position.y;
                     Quaternion extrapolatedRot = latest.Rotation * Quaternion.Euler(latest.AngularVelocity * Mathf.Rad2Deg * timeSinceLatest);
 
                     CheckTeleportOrLerp(extrapolatedPos, extrapolatedRot);
@@ -210,13 +231,18 @@ namespace RacingMobile.Multiplayer
             Vector3 offset = (car != null && car.FrontAxle != null) ? car.FrontAxle.VisualRotationOffset : new Vector3(0f, 0f, -90f);
             Quaternion steerRot = Quaternion.Euler(offset.x, steerAngle + offset.y, offset.z);
 
-            if (car != null && car.FrontAxle.LeftWheelVisual != null)
+            if (car != null)
             {
-                car.FrontAxle.LeftWheelVisual.localRotation = steerRot;
-            }
-            if (car != null && car.FrontAxle.RightWheelVisual != null)
-            {
-                car.FrontAxle.RightWheelVisual.localRotation = steerRot;
+                if (car.FrontAxle != null)
+                {
+                    if (car.FrontAxle.LeftWheelVisual != null) car.FrontAxle.LeftWheelVisual.localRotation = steerRot;
+                    if (car.FrontAxle.RightWheelVisual != null) car.FrontAxle.RightWheelVisual.localRotation = steerRot;
+                }
+                if (car.RearAxle != null)
+                {
+                    if (car.RearAxle.LeftWheelVisual != null) car.RearAxle.LeftWheelVisual.localRotation = Quaternion.Euler(offset);
+                    if (car.RearAxle.RightWheelVisual != null) car.RearAxle.RightWheelVisual.localRotation = Quaternion.Euler(offset);
+                }
             }
         }
 

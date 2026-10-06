@@ -39,10 +39,15 @@ namespace RacingMobile.Multiplayer
             readPerm: NetworkVariableReadPermission.Everyone
         );
 
-        // Snapshot buffer for remote car smoothing
-        private readonly List<CarNetworkSnapshot> snapshotBuffer = new List<CarNetworkSnapshot>();
         private Rigidbody rb;
         private float lastSendTime;
+        private bool hasReceivedSnapshot;
+
+        private Vector3 targetPosition;
+        private Quaternion targetRotation;
+        private Vector3 targetVelocity;
+        private float targetSteerAngle;
+        private float targetWheelRPM;
 
         private void Awake()
         {
@@ -50,9 +55,29 @@ namespace RacingMobile.Multiplayer
             rb = GetComponent<Rigidbody>();
         }
 
+        private void Start()
+        {
+            // Initialize target transforms to current transform to prevent snapping to Vector3.zero
+            targetPosition = transform.position;
+            targetRotation = transform.rotation;
+        }
+
         public override void OnNetworkSpawn()
         {
             base.OnNetworkSpawn();
+
+            // If an in-scene object exists and Netcode automatically spawns PlayerPrefab,
+            // disable the in-scene placeholder so only true player vehicles exist on the track.
+            if (NetworkObject != null && !NetworkObject.IsPlayerObject && NetworkManager.Singleton != null && NetworkManager.Singleton.NetworkConfig.PlayerPrefab != null)
+            {
+                gameObject.SetActive(false);
+                return;
+            }
+
+            if (IsServer || IsOwner)
+            {
+                PositionCarOnStartingGrid();
+            }
 
             if (IsOwner)
             {
@@ -62,6 +87,48 @@ namespace RacingMobile.Multiplayer
             {
                 SetupRemoteOpponent();
             }
+        }
+
+        private void PositionCarOnStartingGrid()
+        {
+            // For host (OwnerClientId 0), if already driving away from starting area, don't reset position
+            if (OwnerClientId == 0 && (Vector3.Distance(transform.position, Vector3.zero) > 10f || transform.position.z < -5f))
+            {
+                return;
+            }
+
+            int slotNumber = (int)OwnerClientId + 1;
+            GameObject slotObj = GameObject.Find($"GridSlot_{slotNumber}");
+
+            Vector3 spawnPos;
+            Quaternion spawnRot;
+
+            if (slotObj != null)
+            {
+                spawnPos = slotObj.transform.position + Vector3.up * 0.55f;
+                spawnRot = slotObj.transform.rotation;
+            }
+            else
+            {
+                float xOffset = (OwnerClientId % 2 == 0) ? -3.5f : 3.5f;
+                float zOffset = (OwnerClientId / 2) * 10f;
+                spawnPos = new Vector3(xOffset, 0.57f, -zOffset);
+                spawnRot = Quaternion.identity;
+            }
+
+            transform.position = spawnPos;
+            transform.rotation = spawnRot;
+
+            if (rb != null)
+            {
+                rb.position = spawnPos;
+                rb.rotation = spawnRot;
+                rb.linearVelocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+            }
+
+            targetPosition = spawnPos;
+            targetRotation = spawnRot;
         }
 
         public override void OnNetworkDespawn()
@@ -83,6 +150,9 @@ namespace RacingMobile.Multiplayer
                 rb.isKinematic = false;
                 rb.interpolation = RigidbodyInterpolation.Interpolate;
             }
+
+            // Enable WheelColliders for active local physics
+            SetWheelCollidersEnabled(true);
 
             // 2. Connect Mobile UI input manager
             MobileInputManager inputMgr = FindFirstObjectByType<MobileInputManager>();
@@ -106,12 +176,6 @@ namespace RacingMobile.Multiplayer
             }
         }
 
-        private Vector3 targetPosition;
-        private Quaternion targetRotation;
-        private Vector3 targetVelocity;
-        private float targetSteerAngle;
-        private float targetWheelRPM;
-
         private void SetupRemoteOpponent()
         {
             // 1. Disable local control and set Rigidbody to kinematic
@@ -122,7 +186,10 @@ namespace RacingMobile.Multiplayer
                 rb.interpolation = RigidbodyInterpolation.None;
             }
 
-            // 2. Ensure local input manager and camera NEVER target this remote car!
+            // 2. Disable WheelColliders on remote vehicle so they don't fight kinematic movement or glitch in PhysX
+            SetWheelCollidersEnabled(false);
+
+            // 3. Ensure local input manager and camera NEVER target this remote car!
             MobileInputManager inputMgr = FindFirstObjectByType<MobileInputManager>();
             if (inputMgr != null && inputMgr.TargetCar == car)
             {
@@ -137,8 +204,9 @@ namespace RacingMobile.Multiplayer
 
             targetPosition = transform.position;
             targetRotation = transform.rotation;
+            hasReceivedSnapshot = false;
 
-            // 3. Listen for incoming Netcode state changes
+            // 4. Listen for incoming Netcode state changes
             netState.OnValueChanged += HandleRemoteSnapshotReceived;
 
             if (netState.Value.Timestamp > 0)
@@ -147,8 +215,32 @@ namespace RacingMobile.Multiplayer
             }
         }
 
+        private void SetWheelCollidersEnabled(bool isEnabled)
+        {
+            if (car == null) return;
+
+            if (car.FrontAxle != null)
+            {
+                if (car.FrontAxle.LeftWheelCollider != null) car.FrontAxle.LeftWheelCollider.enabled = isEnabled;
+                if (car.FrontAxle.RightWheelCollider != null) car.FrontAxle.RightWheelCollider.enabled = isEnabled;
+            }
+
+            if (car.RearAxle != null)
+            {
+                if (car.RearAxle.LeftWheelCollider != null) car.RearAxle.LeftWheelCollider.enabled = isEnabled;
+                if (car.RearAxle.RightWheelCollider != null) car.RearAxle.RightWheelCollider.enabled = isEnabled;
+            }
+        }
+
         private void Update()
         {
+            // If not spawned on network yet (standalone testing, editor playmode),
+            // leave vehicle to normal local physics and do NOT interpolate or overwrite transform!
+            if (!IsSpawned)
+            {
+                return;
+            }
+
             if (IsOwner)
             {
                 // Send state snapshots at network tick rate
@@ -160,7 +252,7 @@ namespace RacingMobile.Multiplayer
             }
             else
             {
-                // Interpolate remote opponent with snapshot buffer
+                // Interpolate remote opponent
                 InterpolateRemoteCar();
             }
         }
@@ -190,10 +282,13 @@ namespace RacingMobile.Multiplayer
             targetVelocity = current.Velocity;
             targetSteerAngle = current.SteerAngle;
             targetWheelRPM = current.WheelRPM;
+            hasReceivedSnapshot = true;
         }
 
         private void InterpolateRemoteCar()
         {
+            if (!hasReceivedSnapshot) return;
+
             float dist = Vector3.Distance(transform.position, targetPosition);
             if (dist > snapDistanceThreshold)
             {
@@ -203,9 +298,13 @@ namespace RacingMobile.Multiplayer
             else
             {
                 // Smooth interpolation with dead reckoning prediction
-                Vector3 predictedPos = targetPosition + targetVelocity * Time.deltaTime;
-                transform.position = Vector3.Lerp(transform.position, predictedPos, Time.deltaTime * 22f);
-                transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.deltaTime * 22f);
+                // Predict horizontal velocity to prevent vertical bounce spikes from erratic suspension velocity
+                Vector3 horizontalVel = new Vector3(targetVelocity.x, 0f, targetVelocity.z);
+                Vector3 predictedPos = targetPosition + horizontalVel * Time.deltaTime;
+                predictedPos.y = targetPosition.y;
+
+                transform.position = Vector3.Lerp(transform.position, predictedPos, Time.deltaTime * 20f);
+                transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.deltaTime * 20f);
             }
 
             ApplyWheelVisuals(targetSteerAngle, targetWheelRPM);
@@ -217,13 +316,18 @@ namespace RacingMobile.Multiplayer
             Vector3 offset = (car != null && car.FrontAxle != null) ? car.FrontAxle.VisualRotationOffset : new Vector3(0f, 0f, -90f);
             Quaternion steerRot = Quaternion.Euler(offset.x, steerAngle + offset.y, offset.z);
 
-            if (car != null && car.FrontAxle.LeftWheelVisual != null)
+            if (car != null)
             {
-                car.FrontAxle.LeftWheelVisual.localRotation = steerRot;
-            }
-            if (car != null && car.FrontAxle.RightWheelVisual != null)
-            {
-                car.FrontAxle.RightWheelVisual.localRotation = steerRot;
+                if (car.FrontAxle != null)
+                {
+                    if (car.FrontAxle.LeftWheelVisual != null) car.FrontAxle.LeftWheelVisual.localRotation = steerRot;
+                    if (car.FrontAxle.RightWheelVisual != null) car.FrontAxle.RightWheelVisual.localRotation = steerRot;
+                }
+                if (car.RearAxle != null)
+                {
+                    if (car.RearAxle.LeftWheelVisual != null) car.RearAxle.LeftWheelVisual.localRotation = Quaternion.Euler(offset);
+                    if (car.RearAxle.RightWheelVisual != null) car.RearAxle.RightWheelVisual.localRotation = Quaternion.Euler(offset);
+                }
             }
         }
     }

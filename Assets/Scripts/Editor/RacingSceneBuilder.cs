@@ -214,10 +214,11 @@ namespace RacingMobile.Editor
             col.radius = 0.38f;
             col.suspensionDistance = 0.22f;
             col.mass = 35f;
+            col.forceAppPointDistance = 0.15f;
 
             JointSpring spring = col.suspensionSpring;
             spring.spring = 32000f;
-            spring.damper = 3800f;
+            spring.damper = 4500f;
             spring.targetPosition = 0.5f;
             col.suspensionSpring = spring;
 
@@ -269,7 +270,7 @@ namespace RacingMobile.Editor
             axle.IsSteering = isSteer;
             axle.IsHandbrake = isHandbrake;
             axle.VisualRotationOffset = new Vector3(0f, 0f, -90f);
-            axle.AntiRollForce = 6000f;
+            axle.AntiRollForce = 3500f;
         }
 
         private static GameObject BuildMobileCanvas()

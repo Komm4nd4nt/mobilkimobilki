@@ -134,10 +134,10 @@ WheelCollider:
   m_Radius: 0.38
   m_SuspensionSpring:
     spring: 32000
-    damper: 3800
+    damper: 4500
     targetPosition: 0.5
   m_SuspensionDistance: 0.22
-  m_ForceAppPointDistance: 0
+  m_ForceAppPointDistance: 0.15
   m_Mass: 35
   m_WheelDampingRate: 0.25
   m_ForwardFriction:
@@ -205,10 +205,10 @@ WheelCollider:
   m_Radius: 0.38
   m_SuspensionSpring:
     spring: 32000
-    damper: 3800
+    damper: 4500
     targetPosition: 0.5
   m_SuspensionDistance: 0.22
-  m_ForceAppPointDistance: 0
+  m_ForceAppPointDistance: 0.15
   m_Mass: 35
   m_WheelDampingRate: 0.25
   m_ForwardFriction:
@@ -491,10 +491,10 @@ WheelCollider:
   m_Radius: 0.38
   m_SuspensionSpring:
     spring: 32000
-    damper: 3800
+    damper: 4500
     targetPosition: 0.5
   m_SuspensionDistance: 0.22
-  m_ForceAppPointDistance: 0
+  m_ForceAppPointDistance: 0.15
   m_Mass: 35
   m_WheelDampingRate: 0.25
   m_ForwardFriction:
@@ -562,10 +562,10 @@ WheelCollider:
   m_Radius: 0.38
   m_SuspensionSpring:
     spring: 32000
-    damper: 3800
+    damper: 4500
     targetPosition: 0.5
   m_SuspensionDistance: 0.22
-  m_ForceAppPointDistance: 0
+  m_ForceAppPointDistance: 0.15
   m_Mass: 35
   m_WheelDampingRate: 0.25
   m_ForwardFriction:
@@ -704,7 +704,7 @@ MonoBehaviour:
     IsMotor: 1
     IsSteering: 1
     IsHandbrake: 0
-    AntiRollForce: 6000
+    AntiRollForce: 3500
   rearAxle:
     AxleName: Rear Axle
     LeftWheelCollider: {fileID: 8201366271819898126}
@@ -714,7 +714,7 @@ MonoBehaviour:
     IsMotor: 1
     IsSteering: 0
     IsHandbrake: 1
-    AntiRollForce: 6000
+    AntiRollForce: 3500
   driveType: 0
   maxMotorTorque: 2200
   maxSpeedKmH: 210
@@ -730,7 +730,7 @@ MonoBehaviour:
   highSpeedSteerThreshold: 140
   steerResponseSpeed: 120
   downforceCoefficient: 60
-  centerOfMassOffset: {x: 0, y: -0.45, z: 0.05}
+  centerOfMassOffset: {x: 0, y: -0.25, z: 0.05}
   isLocallyControlled: 1
 --- !u!114 &1157120074278328004
 MonoBehaviour:

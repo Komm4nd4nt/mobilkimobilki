@@ -5165,7 +5165,7 @@ MonoBehaviour:
   NetworkConfig:
     ProtocolVersion: 0
     NetworkTransport: {fileID: 1844972647}
-    PlayerPrefab: {fileID: 673080415}
+    PlayerPrefab: {fileID: 7771038653915053637, guid: b85c35b47f9e9b7418863050414695b4, type: 3}
     Prefabs:
       NetworkPrefabsLists:
       - {fileID: 11400000, guid: 815aff332c522eb40aaaec9c075c4565, type: 2}
@@ -5177,7 +5177,7 @@ MonoBehaviour:
     TimeResyncInterval: 30
     EnsureNetworkVariableLengthSafety: 0
     EnableSceneManagement: 1
-    ForceSamePrefabs: 1
+    ForceSamePrefabs: 0
     RecycleNetworkIds: 1
     NetworkIdRecycleDelay: 120
     RpcHashSize: 0
@@ -5187,6 +5187,7 @@ MonoBehaviour:
     NetworkTopology: 0
     UseCMBService: 0
     AutoSpawnPlayerPrefabClientSide: 1
+    NetworkMessageMetrics: 1
     NetworkProfilingMetrics: 1
     OldPrefabList: []
   RunInBackground: 1
@@ -5826,6 +5827,10 @@ PrefabInstance:
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
       objectReference: {fileID: 1309293130}
+    - target: {fileID: 5650445517998646541, guid: b85c35b47f9e9b7418863050414695b4, type: 3}
+      propertyPath: centerOfMassOffset.y
+      value: -0.25
+      objectReference: {fileID: 0}
     - target: {fileID: 6224003057722688439, guid: b85c35b47f9e9b7418863050414695b4, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
