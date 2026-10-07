@@ -32,22 +32,60 @@ namespace RacingMobile.MobileUI
 
         private void Start()
         {
-            if (car == null)
-            {
-                car = FindFirstObjectByType<CarPhysicsController>();
-            }
-
             if (inputManager == null)
             {
                 inputManager = FindFirstObjectByType<MobileInputManager>();
             }
 
+            if (car == null || !car.gameObject.activeInHierarchy || !car.IsLocallyControlled)
+            {
+                TryAcquireLocalCar();
+            }
+
             UpdateModeText();
+        }
+
+        public bool TryAcquireLocalCar()
+        {
+            if (inputManager != null && inputManager.TargetCar != null && inputManager.TargetCar.gameObject.activeInHierarchy && inputManager.TargetCar.IsLocallyControlled)
+            {
+                car = inputManager.TargetCar;
+                return true;
+            }
+
+            if (Unity.Netcode.NetworkManager.Singleton != null && Unity.Netcode.NetworkManager.Singleton.IsListening)
+            {
+                var localClient = Unity.Netcode.NetworkManager.Singleton.LocalClient;
+                if (localClient != null && localClient.PlayerObject != null && localClient.PlayerObject.gameObject.activeInHierarchy)
+                {
+                    var pc = localClient.PlayerObject.GetComponent<CarPhysicsController>();
+                    if (pc != null && pc.IsLocallyControlled)
+                    {
+                        car = pc;
+                        return true;
+                    }
+                }
+            }
+
+            var allCars = FindObjectsByType<CarPhysicsController>(FindObjectsSortMode.None);
+            foreach (var c in allCars)
+            {
+                if (c.gameObject.activeInHierarchy && c.IsLocallyControlled)
+                {
+                    car = c;
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private void Update()
         {
-            if (car == null) return;
+            if (car == null || !car.gameObject.activeInHierarchy || !car.IsLocallyControlled)
+            {
+                if (!TryAcquireLocalCar()) return;
+            }
 
             float speed = Mathf.Abs(car.CurrentSpeedKmH);
 

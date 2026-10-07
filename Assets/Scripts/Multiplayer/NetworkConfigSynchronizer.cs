@@ -34,10 +34,28 @@ namespace RacingMobile.Multiplayer
         public static void ApplyConfiguration()
         {
             NetworkManager netMgr = NetworkManager.Singleton;
-            if (netMgr == null) return;
+            if (netMgr == null)
+            {
+                netMgr = UnityEngine.Object.FindFirstObjectByType<NetworkManager>();
+                if (netMgr == null) return;
+            }
+
+            // Ensure UnityTransport component exists
+            UnityTransport transport = netMgr.GetComponent<UnityTransport>();
+            if (transport == null)
+            {
+                transport = netMgr.gameObject.AddComponent<UnityTransport>();
+            }
 
             NetworkConfig config = netMgr.NetworkConfig;
-            if (config == null) return;
+            if (config == null)
+            {
+                config = new NetworkConfig();
+                netMgr.NetworkConfig = config;
+            }
+
+            // Crucial: Bind NetworkTransport to NetworkConfig
+            config.NetworkTransport = transport;
 
             // 1. Force Disable ForceSamePrefabs
             // This prevents XXHash mismatch of prefab override links across virtual projects / clones
@@ -67,7 +85,7 @@ namespace RacingMobile.Multiplayer
             ClearCachedConfigHash(config);
 
             ulong hash = config.GetConfig(false);
-            Debug.Log($"<color=cyan>[NetworkConfigSynchronizer]</color> Config normalized! Hash: <b>{hash}</b> | ForceSamePrefabs: {config.ForceSamePrefabs} | PlayerPrefab: {(config.PlayerPrefab != null ? config.PlayerPrefab.name : "null")}");
+            Debug.Log($"<color=cyan>[NetworkConfigSynchronizer]</color> Config normalized! Hash: <b>{hash}</b> | Transport: {(config.NetworkTransport != null ? config.NetworkTransport.GetType().Name : "null")} | ForceSamePrefabs: {config.ForceSamePrefabs} | PlayerPrefab: {(config.PlayerPrefab != null ? config.PlayerPrefab.name : "null")}");
         }
 
         public static void ClearCachedConfigHash(NetworkConfig config)
@@ -101,21 +119,39 @@ namespace RacingMobile.Multiplayer
             if (netMgr == null) return;
 
             bool modified = false;
-            NetworkConfig config = netMgr.NetworkConfig;
-            if (config != null)
-            {
-                if (config.ForceSamePrefabs)
-                {
-                    config.ForceSamePrefabs = false;
-                    modified = true;
-                }
 
-                GameObject carPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(CarPrefabPath);
-                if (carPrefab != null && (config.PlayerPrefab != carPrefab || !PrefabUtility.IsPartOfPrefabAsset(config.PlayerPrefab)))
-                {
-                    config.PlayerPrefab = carPrefab;
-                    modified = true;
-                }
+            UnityTransport transport = netMgr.GetComponent<UnityTransport>();
+            if (transport == null)
+            {
+                transport = netMgr.gameObject.AddComponent<UnityTransport>();
+                modified = true;
+            }
+
+            NetworkConfig config = netMgr.NetworkConfig;
+            if (config == null)
+            {
+                config = new NetworkConfig();
+                netMgr.NetworkConfig = config;
+                modified = true;
+            }
+
+            if (config.NetworkTransport != transport)
+            {
+                config.NetworkTransport = transport;
+                modified = true;
+            }
+
+            if (config.ForceSamePrefabs)
+            {
+                config.ForceSamePrefabs = false;
+                modified = true;
+            }
+
+            GameObject carPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(CarPrefabPath);
+            if (carPrefab != null && (config.PlayerPrefab != carPrefab || !PrefabUtility.IsPartOfPrefabAsset(config.PlayerPrefab)))
+            {
+                config.PlayerPrefab = carPrefab;
+                modified = true;
             }
 
             if (modified)
@@ -126,7 +162,7 @@ namespace RacingMobile.Multiplayer
                 {
                     EditorSceneManager.MarkSceneDirty(activeScene);
                 }
-                Debug.Log("<color=green>[NetworkConfigSynchronizer]</color> Editor NetworkManager updated: ForceSamePrefabs=false, PlayerPrefab=RacingCar_Netcode");
+                Debug.Log("<color=green>[NetworkConfigSynchronizer]</color> Editor NetworkManager updated: ForceSamePrefabs=false, NetworkTransport=UnityTransport, PlayerPrefab=RacingCar_Netcode");
             }
         }
 #endif

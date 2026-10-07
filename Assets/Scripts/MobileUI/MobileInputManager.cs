@@ -90,10 +90,15 @@ namespace RacingMobile.MobileUI
 
         private void Start()
         {
-            // Only set targetCar if already assigned and locally controlled
-            if (targetCar != null && !targetCar.IsLocallyControlled)
+            // Only set targetCar if already assigned, active, and locally controlled
+            if (targetCar != null && (!targetCar.gameObject.activeInHierarchy || !targetCar.IsLocallyControlled))
             {
                 targetCar = null;
+            }
+
+            if (targetCar == null)
+            {
+                TryAcquireLocalCar();
             }
 
             if (PlayerPrefs.HasKey("Settings_SteeringMode"))
@@ -102,6 +107,40 @@ namespace RacingMobile.MobileUI
             }
 
             UpdateControlContainers();
+        }
+
+        /// <summary>
+        /// Automatically discovers and links to the active local player vehicle.
+        /// </summary>
+        public bool TryAcquireLocalCar()
+        {
+            // 1. From Netcode LocalClient PlayerObject
+            if (Unity.Netcode.NetworkManager.Singleton != null && Unity.Netcode.NetworkManager.Singleton.IsListening)
+            {
+                var localClient = Unity.Netcode.NetworkManager.Singleton.LocalClient;
+                if (localClient != null && localClient.PlayerObject != null && localClient.PlayerObject.gameObject.activeInHierarchy)
+                {
+                    var pc = localClient.PlayerObject.GetComponent<CarPhysicsController>();
+                    if (pc != null && pc.IsLocallyControlled)
+                    {
+                        targetCar = pc;
+                        return true;
+                    }
+                }
+            }
+
+            // 2. Search for any active CarPhysicsController marked IsLocallyControlled
+            var allCars = FindObjectsByType<CarPhysicsController>(FindObjectsSortMode.None);
+            foreach (var c in allCars)
+            {
+                if (c.gameObject.activeInHierarchy && c.IsLocallyControlled)
+                {
+                    targetCar = c;
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -137,16 +176,22 @@ namespace RacingMobile.MobileUI
         {
             PollInputs();
 
+            // Auto-acquire local vehicle if current targetCar is missing, inactive, or not locally controlled
+            if (targetCar == null || !targetCar.gameObject.activeInHierarchy || !targetCar.IsLocallyControlled)
+            {
+                TryAcquireLocalCar();
+            }
+
             // Feed input strictly to locally controlled vehicle
             if (targetCar != null)
             {
-                if (targetCar.IsLocallyControlled)
+                if (targetCar.IsLocallyControlled && targetCar.gameObject.activeInHierarchy)
                 {
                     targetCar.SetInput(currentState);
                 }
                 else
                 {
-                    // Target car is a remote opponent! Detach immediately
+                    // Target car is a remote opponent or deactivated! Detach immediately
                     targetCar = null;
                 }
             }

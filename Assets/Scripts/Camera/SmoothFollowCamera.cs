@@ -42,19 +42,28 @@ namespace RacingMobile.Camera
 
         private void Start()
         {
-            if (target != null)
+            if (target != null && target.gameObject.activeInHierarchy)
             {
-                SetTarget(target);
+                SetTarget(target, snapImmediately: true);
+            }
+            else
+            {
+                TryAcquireLocalCarTarget();
             }
         }
 
-        public void SetTarget(Transform newTarget)
+        public void SetTarget(Transform newTarget, bool snapImmediately = false)
         {
             target = newTarget;
             if (target != null)
             {
                 targetCar = target.GetComponent<CarPhysicsController>();
                 targetRb = target.GetComponent<Rigidbody>();
+
+                if (snapImmediately)
+                {
+                    SnapToTarget();
+                }
             }
             else
             {
@@ -63,9 +72,57 @@ namespace RacingMobile.Camera
             }
         }
 
-        private void LateUpdate()
+        public void SnapToTarget()
         {
             if (target == null) return;
+
+            Vector3 desiredPosition = target.TransformPoint(offset);
+            transform.position = desiredPosition;
+
+            Vector3 lookTarget = target.position + target.up * (offset.y * 0.4f);
+            Vector3 forwardDirection = (lookTarget - transform.position).normalized;
+            if (forwardDirection != Vector3.zero)
+            {
+                transform.rotation = Quaternion.LookRotation(forwardDirection, target.up);
+            }
+        }
+
+        public bool TryAcquireLocalCarTarget()
+        {
+            // 1. Check Netcode LocalClient PlayerObject
+            if (Unity.Netcode.NetworkManager.Singleton != null && Unity.Netcode.NetworkManager.Singleton.IsListening)
+            {
+                var localClient = Unity.Netcode.NetworkManager.Singleton.LocalClient;
+                if (localClient != null && localClient.PlayerObject != null && localClient.PlayerObject.gameObject.activeInHierarchy)
+                {
+                    SetTarget(localClient.PlayerObject.transform, snapImmediately: true);
+                    return true;
+                }
+            }
+
+            // 2. Search for any active CarPhysicsController marked IsLocallyControlled
+            var allCars = FindObjectsByType<CarPhysicsController>(FindObjectsSortMode.None);
+            foreach (var c in allCars)
+            {
+                if (c.gameObject.activeInHierarchy && c.IsLocallyControlled)
+                {
+                    SetTarget(c.transform, snapImmediately: true);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void LateUpdate()
+        {
+            if (target == null || !target.gameObject.activeInHierarchy || (targetCar != null && !targetCar.IsLocallyControlled))
+            {
+                if (!TryAcquireLocalCarTarget())
+                {
+                    return;
+                }
+            }
 
             // 1. Calculate Target Position behind the vehicle
             Vector3 desiredPosition = target.TransformPoint(offset);

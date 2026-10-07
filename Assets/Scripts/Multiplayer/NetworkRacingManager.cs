@@ -43,6 +43,16 @@ namespace RacingMobile.Multiplayer
 
         private void Start()
         {
+            if (spawnGridPoints == null || spawnGridPoints.Count == 0)
+            {
+                spawnGridPoints = new List<Transform>();
+                for (int i = 1; i <= 8; i++)
+                {
+                    var slot = GameObject.Find($"GridSlot_{i}");
+                    if (slot != null) spawnGridPoints.Add(slot.transform);
+                }
+            }
+
             ResolveCarPrefab();
             SetupUIButtons();
             if (connectionPanel != null) connectionPanel.SetActive(false);
@@ -51,12 +61,48 @@ namespace RacingMobile.Multiplayer
             AutoStartSession();
         }
 
+        private void OnDestroy()
+        {
+            if (NetworkManager.Singleton != null)
+            {
+                NetworkManager.Singleton.OnClientConnectedCallback -= HandleClientConnected;
+                if (NetworkManager.Singleton.SceneManager != null)
+                {
+                    NetworkManager.Singleton.SceneManager.OnSceneEvent -= HandleSceneEvent;
+                }
+            }
+        }
+
         private void AutoStartSession()
         {
             if (NetworkManager.Singleton == null) return;
-            if (NetworkManager.Singleton.IsClient || NetworkManager.Singleton.IsServer) return;
 
-            // If client connection was prepared with an IP:
+            // If session was already started in Main Menu Lobby:
+            if (NetworkManager.Singleton.IsClient || NetworkManager.Singleton.IsServer)
+            {
+                ResolveCarPrefab();
+                CleanupScenePlaceholders();
+
+                if (NetworkManager.Singleton.IsServer)
+                {
+                    NetworkManager.Singleton.OnClientConnectedCallback -= HandleClientConnected;
+                    NetworkManager.Singleton.OnClientConnectedCallback += HandleClientConnected;
+
+                    if (NetworkManager.Singleton.SceneManager != null)
+                    {
+                        NetworkManager.Singleton.SceneManager.OnSceneEvent -= HandleSceneEvent;
+                        NetworkManager.Singleton.SceneManager.OnSceneEvent += HandleSceneEvent;
+                    }
+
+                    foreach (ulong clientId in NetworkManager.Singleton.ConnectedClientsIds)
+                    {
+                        HandleClientConnected(clientId);
+                    }
+                }
+                return;
+            }
+
+            // Direct scene launch fallback:
             if (!LobbySessionData.IsHost && !string.IsNullOrEmpty(LobbySessionData.ServerAddress) && LobbySessionData.CurrentRoomCode == "DIRECT_IP")
             {
                 SetTransportAddress(LobbySessionData.ServerAddress, LobbySessionData.ServerPort);
@@ -175,16 +221,26 @@ namespace RacingMobile.Multiplayer
             return defaultIp;
         }
 
+        private void HandleSceneEvent(SceneEvent sceneEvent)
+        {
+            if (!NetworkManager.Singleton.IsServer) return;
+
+            if (sceneEvent.SceneEventType == SceneEventType.LoadComplete)
+            {
+                ulong clientId = sceneEvent.ClientId;
+                if (!spawnedClients.Contains(clientId))
+                {
+                    HandleClientConnected(clientId);
+                }
+            }
+        }
+
         private void HandleClientConnected(ulong clientId)
         {
             if (!NetworkManager.Singleton.IsServer) return;
 
-            // If Netcode already handles spawning via PlayerPrefab, skip manual instantiation
-            if (NetworkManager.Singleton.NetworkConfig.PlayerPrefab != null) return;
-
             // Avoid duplicate spawns for the same client ID
             if (spawnedClients.Contains(clientId)) return;
-            spawnedClients.Add(clientId);
 
             ResolveCarPrefab();
 
@@ -192,6 +248,13 @@ namespace RacingMobile.Multiplayer
             {
                 UpdateStatus("Error: Car Prefab not found! Cannot spawn vehicle.");
                 return;
+            }
+
+            // Check if client already has a valid spawned PlayerObject in the current scene
+            NetworkObject existingPlayerObj = null;
+            if (NetworkManager.Singleton.ConnectedClients.TryGetValue(clientId, out var clientData))
+            {
+                existingPlayerObj = clientData.PlayerObject;
             }
 
             // Spawn car for connected client at the next grid position
@@ -216,10 +279,32 @@ namespace RacingMobile.Multiplayer
                 spawnPos = new Vector3(offset * 4f, 0.55f, -offset * 6f);
             }
 
+            if (existingPlayerObj != null && existingPlayerObj.IsSpawned)
+            {
+                existingPlayerObj.gameObject.SetActive(true);
+                existingPlayerObj.transform.position = spawnPos;
+                existingPlayerObj.transform.rotation = spawnRot;
+                var rb = existingPlayerObj.GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.position = spawnPos;
+                    rb.rotation = spawnRot;
+                    rb.linearVelocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                }
+                spawnedClients.Add(clientId);
+                Debug.Log($"[RacingNet] Repositioned existing player vehicle for Client {clientId} at {spawnPos}");
+                return;
+            }
+
+            spawnedClients.Add(clientId);
             GameObject playerCar = Instantiate(networkCarPrefab, spawnPos, spawnRot);
+            playerCar.SetActive(true);
             Rigidbody carRb = playerCar.GetComponent<Rigidbody>();
             if (carRb != null)
             {
+                carRb.position = spawnPos;
+                carRb.rotation = spawnRot;
                 carRb.linearVelocity = Vector3.zero;
                 carRb.angularVelocity = Vector3.zero;
             }
@@ -227,7 +312,14 @@ namespace RacingMobile.Multiplayer
             NetworkObject netObj = playerCar.GetComponent<NetworkObject>();
             if (netObj != null)
             {
-                netObj.SpawnWithOwnership(clientId);
+                try
+                {
+                    netObj.SpawnAsPlayerObject(clientId);
+                }
+                catch
+                {
+                    netObj.SpawnWithOwnership(clientId);
+                }
                 Debug.Log($"[RacingNet] Spawned dedicated car for Client {clientId} at {spawnPos}");
             }
         }

@@ -11,6 +11,8 @@ using RacingMobile.MobileUI;
 using RacingMobile.Multiplayer;
 using RacingMobile.UI.MainMenu;
 using RacingMobile.Vehicle;
+using Unity.Netcode;
+using Unity.Netcode.Transports.UTP;
 
 namespace RacingMobile.Editor
 {
@@ -27,6 +29,7 @@ namespace RacingMobile.Editor
         static MainMenuSceneBuilder()
         {
             EditorApplication.delayCall += CheckAndBuildMenuScene;
+            EditorSceneManager.activeSceneChangedInEditMode += (s1, s2) => CheckAndBuildMenuScene();
         }
 
         private static void CheckAndBuildMenuScene()
@@ -34,9 +37,18 @@ namespace RacingMobile.Editor
             var activeScene = EditorSceneManager.GetActiveScene();
             if (activeScene.name == "MainMenu" || activeScene.name == "MainMenuScene")
             {
-                if (UnityEngine.Object.FindFirstObjectByType<MainMenuController>() == null)
+                var controller = UnityEngine.Object.FindFirstObjectByType<MainMenuController>();
+                if (controller == null)
                 {
                     BuildMenuScene();
+                }
+                else
+                {
+                    var lobbyModal = controller.transform.Find("SafeAreaContainer/Panel_LobbyRoom");
+                    if (lobbyModal == null)
+                    {
+                        BuildMenuScene();
+                    }
                 }
             }
         }
@@ -95,14 +107,17 @@ namespace RacingMobile.Editor
             // 4. Setup Canvas and all UI
             GameObject canvasObj = BuildCanvas();
 
-            // 5. Save Scene
+            // 5. Ensure Netcode NetworkManager in Scene
+            EnsureSceneNetworkManager();
+
+            // 6. Save Scene
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, scenePath);
 
-            // 6. Update Build Settings so MainMenu is Scene 0 and SampleScene is Scene 1
+            // 7. Update Build Settings so MainMenu is Scene 0 and SampleScene is Scene 1
             ConfigureBuildSettings();
 
-            Debug.Log("<color=cyan>[MainMenuSceneBuilder]</color> Main Menu scene successfully built and saved to " + scenePath);
+            Debug.Log("<color=cyan>[MainMenuSceneBuilder]</color> Main Menu scene with Multiplayer Lobby successfully built and saved to " + scenePath);
         }
 
         [MenuItem("Racing Mobile/Configure Build Settings (Add Scenes)", false, 3)]
@@ -252,17 +267,27 @@ namespace RacingMobile.Editor
             GameObject mainPanel = BuildMainNavigationPanel(safeAreaObj.transform, controller);
             SetPrivateField(controller, "mainPanel", mainPanel);
 
-            // ================= 3. CREATE LOBBY MODAL =================
+            // ================= 3. TEST DRIVE / TRACK SELECT MODAL =================
+            GameObject testDrivePanel = BuildTestDriveModal(safeAreaObj.transform, controller);
+            SetPrivateField(controller, "testDriveModalPanel", testDrivePanel);
+            testDrivePanel.SetActive(false);
+
+            // ================= 4. CREATE LOBBY MODAL =================
             GameObject createPanel = BuildCreateLobbyModal(safeAreaObj.transform, controller);
             SetPrivateField(controller, "createLobbyPanel", createPanel);
             createPanel.SetActive(false);
 
-            // ================= 4. JOIN LOBBY MODAL =================
+            // ================= 5. JOIN LOBBY MODAL =================
             GameObject joinPanel = BuildJoinLobbyModal(safeAreaObj.transform, controller);
             SetPrivateField(controller, "joinLobbyPanel", joinPanel);
             joinPanel.SetActive(false);
 
-            // ================= 5. SETTINGS MODAL =================
+            // ================= 6. LOBBY ROOM PANEL =================
+            GameObject lobbyRoomPanel = BuildLobbyRoomPanel(safeAreaObj.transform, controller);
+            SetPrivateField(controller, "lobbyRoomPanel", lobbyRoomPanel);
+            lobbyRoomPanel.SetActive(false);
+
+            // ================= 7. SETTINGS MODAL =================
             GameObject settingsPanel = BuildSettingsModal(safeAreaObj.transform, controller);
             SetPrivateField(controller, "settingsPanel", settingsPanel);
             settingsPanel.SetActive(false);
@@ -361,6 +386,56 @@ namespace RacingMobile.Editor
             return panel;
         }
 
+        private static GameObject BuildTestDriveModal(Transform parent, MainMenuController controller)
+        {
+            GameObject overlay = CreateModalBackdrop("Modal_TestDrive", parent);
+            GameObject card = CreateModalCard(overlay.transform, "Card_TestDrive", new Vector2(840f, 640f));
+
+            // Title & Subtitle
+            CreateText(card.transform, "Title", new Vector2(0f, 260f), new Vector2(760f, 45f), "WYBIERZ TOR TESTOWY", 32, TextAnchor.MiddleCenter, new Color(1f, 0.75f, 0.1f), FontStyle.Bold);
+            CreateText(card.transform, "Sub", new Vector2(0f, 222f), new Vector2(760f, 30f), "Trening solo, testowanie fizyki jazdy i bicie rekordów", 18, TextAnchor.MiddleCenter, new Color(0.7f, 0.75f, 0.85f));
+
+            // Track Showcase Container
+            GameObject trackBox = CreateUIRect("TrackShowcaseBox", card.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 45f), new Vector2(760f, 250f));
+            trackBox.GetComponent<RectTransform>().pivot = new Vector2(0.5f, 0.5f);
+            Image trackBoxBg = trackBox.AddComponent<Image>();
+            trackBoxBg.color = new Color(0.06f, 0.08f, 0.13f, 0.98f);
+
+            // Carousel arrow buttons (< and >)
+            Button prevTrackBtn = CreateButton(trackBox.transform, "Btn_TDPrevTrack", new Vector2(-325f, 0f), new Vector2(65f, 85f), "◀", new Color(0.2f, 0.26f, 0.36f), new Color(0f, 0.88f, 1f), 28, FontStyle.Bold);
+            Button nextTrackBtn = CreateButton(trackBox.transform, "Btn_TDNextTrack", new Vector2(325f, 0f), new Vector2(65f, 85f), "▶", new Color(0.2f, 0.26f, 0.36f), new Color(0f, 0.88f, 1f), 28, FontStyle.Bold);
+
+            // Central Track Details
+            Text trackNameTxt = CreateText(trackBox.transform, "Txt_TDTrackName", new Vector2(0f, 65f), new Vector2(560f, 40f), "TOR GŁÓWNY GP (ASFALT)", 24, TextAnchor.MiddleCenter, new Color(0f, 0.88f, 1f), FontStyle.Bold);
+            Text trackDetailsTxt = CreateText(trackBox.transform, "Txt_TDTrackDetails", new Vector2(0f, 25f), new Vector2(560f, 30f), "2.4 km • Gładki asfalt • Trudność: Średnia", 17, TextAnchor.MiddleCenter, new Color(1f, 0.85f, 0.2f), FontStyle.Bold);
+            Text trackDescTxt = CreateText(trackBox.transform, "Txt_TDTrackDesc", new Vector2(0f, -30f), new Vector2(540f, 65f), "Szybki asfaltowy tor z rampami skokowymi i łukami driftowymi.", 15, TextAnchor.MiddleCenter, new Color(0.75f, 0.8f, 0.9f));
+
+            // Wire references to controller
+            SetPrivateField(controller, "testDrivePrevTrackBtn", prevTrackBtn);
+            SetPrivateField(controller, "testDriveNextTrackBtn", nextTrackBtn);
+            SetPrivateField(controller, "testDriveTrackNameText", trackNameTxt);
+            SetPrivateField(controller, "testDriveTrackDetailsText", trackDetailsTxt);
+            SetPrivateField(controller, "testDriveTrackDescText", trackDescTxt);
+
+            // Badges / Mode quick info strip
+            GameObject infoStrip = CreateUIRect("InfoStrip", card.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, -120f), new Vector2(760f, 46f));
+            infoStrip.GetComponent<RectTransform>().pivot = new Vector2(0.5f, 0.5f);
+            Image stripBg = infoStrip.AddComponent<Image>();
+            stripBg.color = new Color(0.12f, 0.16f, 0.22f, 0.75f);
+            CreateText(infoStrip.transform, "StripText", Vector2.zero, new Vector2(740f, 40f), "★ Tryb: Wolny Trening   •   Ruch: Brak innych aut   •   Fizyka: Pełna symulacja", 15, TextAnchor.MiddleCenter, new Color(0.6f, 0.7f, 0.8f));
+
+            // Bottom action buttons
+            Button startBtn = CreateButton(card.transform, "Btn_TDStartDrive", new Vector2(150f, -225f), new Vector2(340f, 68f),
+                "ROZPOCZNIJ JAZDĘ", new Color(0.95f, 0.65f, 0.1f), Color.white, 22, FontStyle.Bold);
+            SetPrivateField(controller, "testDriveStartBtn", startBtn);
+
+            Button backBtn = CreateButton(card.transform, "Btn_Back", new Vector2(-210f, -225f), new Vector2(240f, 68f),
+                "WRÓĆ", new Color(0.35f, 0.38f, 0.45f), Color.white, 20);
+            SetPrivateField(controller, "testDriveBackBtn", backBtn);
+
+            return overlay;
+        }
+
         private static GameObject BuildCreateLobbyModal(Transform parent, MainMenuController controller)
         {
             GameObject overlay = CreateModalBackdrop("Modal_CreateLobby", parent);
@@ -425,21 +500,23 @@ namespace RacingMobile.Editor
 
             // Title
             CreateText(card.transform, "Title", new Vector2(0f, 205f), new Vector2(700f, 45f), "DOŁĄCZ DO LOBBY", 32, TextAnchor.MiddleCenter, new Color(0.1f, 0.65f, 1f), FontStyle.Bold);
-            CreateText(card.transform, "Sub", new Vector2(0f, 170f), new Vector2(700f, 30f), "Wpisz 6-znakowy kod pokoju od znajomego lub adres IP", 18, TextAnchor.MiddleCenter, new Color(0.7f, 0.75f, 0.85f));
+            
+            string myIp = NetworkLobbyManager.GetLocalIPAddress();
+            CreateText(card.transform, "Sub", new Vector2(0f, 170f), new Vector2(700f, 30f), $"Wpisz IP lub kod pokoju • Twój IP: {myIp}", 17, TextAnchor.MiddleCenter, new Color(0.7f, 0.75f, 0.85f));
 
             // Room Code Input
-            CreateText(card.transform, "Lbl_Code", new Vector2(0f, 105f), new Vector2(500f, 30f), "Kod pokoju lub IP hosta:", 20, TextAnchor.MiddleCenter, Color.white, FontStyle.Bold);
-            InputField codeInput = CreateInputField(card.transform, "Input_JoinCode", new Vector2(0f, 55f), new Vector2(420f, 60f), "np. RACE01 lub 192.168.1.5", "");
+            CreateText(card.transform, "Lbl_Code", new Vector2(0f, 105f), new Vector2(500f, 30f), "Adres IP hosta lub kod pokoju:", 20, TextAnchor.MiddleCenter, Color.white, FontStyle.Bold);
+            InputField codeInput = CreateInputField(card.transform, "Input_JoinCode", new Vector2(0f, 55f), new Vector2(420f, 60f), "np. 127.0.0.1 lub 192.168.1.5", "127.0.0.1");
             SetPrivateField(controller, "joinCodeInput", codeInput);
 
             // Join by Code Button
             Button confirmJoinBtn = CreateButton(card.transform, "Btn_ConfirmJoinCode", new Vector2(0f, -25f), new Vector2(420f, 65f),
-                "DOŁĄCZ PRZEZ KOD", new Color(0.08f, 0.55f, 0.95f), Color.white, 22, FontStyle.Bold);
+                "POŁĄCZ Z HOSTEM", new Color(0.08f, 0.55f, 0.95f), Color.white, 22, FontStyle.Bold);
             SetPrivateField(controller, "confirmJoinLobbyButton", confirmJoinBtn);
 
             // Quick Join Button
             Button quickJoinBtn = CreateButton(card.transform, "Btn_QuickJoin", new Vector2(0f, -95f), new Vector2(420f, 52f),
-                "SZYBKIE DOŁĄCZENIE (DOWOLNY POKÓJ)", new Color(0.2f, 0.26f, 0.36f), new Color(0.85f, 0.9f, 1f), 18);
+                "SZYBKIE DOŁĄCZENIE (LOKALNIE 127.0.0.1)", new Color(0.2f, 0.26f, 0.36f), new Color(0.85f, 0.9f, 1f), 18);
             SetPrivateField(controller, "quickJoinButton", quickJoinBtn);
 
             // Feedback Text
@@ -452,6 +529,182 @@ namespace RacingMobile.Editor
             SetPrivateField(controller, "joinLobbyBackButton", backBtn);
 
             return overlay;
+        }
+
+        private static GameObject BuildLobbyRoomPanel(Transform parent, MainMenuController controller)
+        {
+            GameObject overlay = CreateModalBackdrop("Panel_LobbyRoom", parent);
+            GameObject card = CreateModalCard(overlay.transform, "Card_LobbyRoom", new Vector2(1060f, 720f));
+
+            // --- Header ---
+            Text titleTxt = CreateText(card.transform, "Txt_LobbyTitle", new Vector2(0f, 310f), new Vector2(980f, 42f), "POKÓJ: POKÓJ MISTRZÓW", 30, TextAnchor.MiddleCenter, new Color(0f, 0.88f, 1f), FontStyle.Bold);
+            Text codeTxt = CreateText(card.transform, "Txt_LobbyCode", new Vector2(0f, 275f), new Vector2(980f, 28f), "KOD: RACE01   •   IP HOSTA: 127.0.0.1:7777", 17, TextAnchor.MiddleCenter, new Color(0.75f, 0.8f, 0.9f));
+            Text countTxt = CreateText(card.transform, "Txt_LobbyCount", new Vector2(0f, 245f), new Vector2(980f, 30f), "1 / 4 GRACZY W POKOJU", 19, TextAnchor.MiddleCenter, new Color(0.04f, 0.76f, 0.55f), FontStyle.Bold);
+
+            SetPrivateField(controller, "lobbyRoomTitleText", titleTxt);
+            SetPrivateField(controller, "lobbyRoomCodeText", codeTxt);
+            SetPrivateField(controller, "lobbyPlayerCountText", countTxt);
+
+            // --- Left Card: Track Details & Settings ---
+            GameObject trackCard = CreateUIRect("Card_LobbyTrackInfo", card.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-330f, 15f), new Vector2(340f, 420f));
+            trackCard.GetComponent<RectTransform>().pivot = new Vector2(0.5f, 0.5f);
+            Image tcBg = trackCard.AddComponent<Image>();
+            tcBg.color = new Color(0.06f, 0.08f, 0.13f, 0.95f);
+
+            CreateText(trackCard.transform, "Lbl_TrackHeader", new Vector2(0f, 170f), new Vector2(300f, 30f), "WYBRANY TOR", 20, TextAnchor.MiddleCenter, new Color(1f, 0.75f, 0.1f), FontStyle.Bold);
+
+            // Track Selector Carousel Strip
+            GameObject trackBox = CreateUIRect("TrackBox", trackCard.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 85f), new Vector2(310f, 110f));
+            trackBox.GetComponent<RectTransform>().pivot = new Vector2(0.5f, 0.5f);
+            Image tbBg = trackBox.AddComponent<Image>();
+            tbBg.color = new Color(0.1f, 0.13f, 0.19f, 0.9f);
+
+            Button prevBtn = CreateButton(trackBox.transform, "Btn_LobbyTrackPrev", new Vector2(-120f, 0f), new Vector2(46f, 70f), "◀", new Color(0.18f, 0.24f, 0.34f), new Color(0f, 0.88f, 1f), 24, FontStyle.Bold);
+            Button nextBtn = CreateButton(trackBox.transform, "Btn_LobbyTrackNext", new Vector2(120f, 0f), new Vector2(46f, 70f), "▶", new Color(0.18f, 0.24f, 0.34f), new Color(0f, 0.88f, 1f), 24, FontStyle.Bold);
+
+            Text trackNameTxt = CreateText(trackBox.transform, "Txt_LobbyTrackName", new Vector2(0f, 15f), new Vector2(190f, 44f), "TOR GŁÓWNY GP (ASFALT)", 16, TextAnchor.MiddleCenter, new Color(0f, 0.88f, 1f), FontStyle.Bold);
+            Text trackDetailsTxt = CreateText(trackBox.transform, "Txt_LobbyTrackDetails", new Vector2(0f, -22f), new Vector2(210f, 30f), "2.4 km • Asfalt • Średnia", 13, TextAnchor.MiddleCenter, new Color(1f, 0.85f, 0.2f), FontStyle.Bold);
+
+            SetPrivateField(controller, "lobbyTrackPrevBtn", prevBtn);
+            SetPrivateField(controller, "lobbyTrackNextBtn", nextBtn);
+            SetPrivateField(controller, "lobbyTrackNameText", trackNameTxt);
+            SetPrivateField(controller, "lobbyTrackDetailsText", trackDetailsTxt);
+
+            // Match Info notes
+            GameObject noteBox = CreateUIRect("MatchNoteBox", trackCard.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, -70f), new Vector2(310f, 150f));
+            noteBox.GetComponent<RectTransform>().pivot = new Vector2(0.5f, 0.5f);
+            Image nbBg = noteBox.AddComponent<Image>();
+            nbBg.color = new Color(0.08f, 0.1f, 0.15f, 0.8f);
+
+            CreateText(noteBox.transform, "Txt_Notes", Vector2.zero, new Vector2(290f, 130f),
+                "★ Multiplayer: Netcode for GameObjects\n★ Synchronizacja pozycji i kolizji fizyki\n★ Gospodarz może usuwać graczy z pokoju\n★ Start: Równy start z pól startowych",
+                14, TextAnchor.MiddleLeft, new Color(0.7f, 0.78f, 0.9f));
+
+            // --- Right Column: Player List ---
+            GameObject playerCol = CreateUIRect("Col_LobbyPlayers", card.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(175f, 15f), new Vector2(650f, 420f));
+            playerCol.GetComponent<RectTransform>().pivot = new Vector2(0.5f, 0.5f);
+            Image pcBg = playerCol.AddComponent<Image>();
+            pcBg.color = new Color(0.06f, 0.08f, 0.13f, 0.95f);
+
+            CreateText(playerCol.transform, "Lbl_PlayersHeader", new Vector2(-180f, 185f), new Vector2(250f, 30f), "LISTA GRACZY W LOBBY", 19, TextAnchor.MiddleLeft, Color.white, FontStyle.Bold);
+            CreateText(playerCol.transform, "Lbl_HostHint", new Vector2(120f, 185f), new Vector2(350f, 30f), "(Tylko gospodarz może usuwać)", 14, TextAnchor.MiddleRight, new Color(0.6f, 0.65f, 0.75f));
+
+            GameObject listContent = CreateUIRect("LobbyPlayerListContent", playerCol.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, -20f), new Vector2(630f, 360f));
+            listContent.GetComponent<RectTransform>().pivot = new Vector2(0.5f, 0.5f);
+            SetPrivateField(controller, "lobbyPlayerListContent", listContent.transform);
+
+            var slotList = new List<LobbyPlayerSlotUI>();
+
+            // Build 8 Player Slot Cards
+            for (int i = 1; i <= 8; i++)
+            {
+                float yPos = 145f - ((i - 1) * 44f);
+                GameObject slotObj = CreateUIRect($"Slot_{i}", listContent.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, yPos), new Vector2(620f, 40f));
+                slotObj.GetComponent<RectTransform>().pivot = new Vector2(0.5f, 0.5f);
+                Image slotBg = slotObj.AddComponent<Image>();
+                slotBg.color = (i % 2 == 0) ? new Color(0.09f, 0.12f, 0.18f, 0.95f) : new Color(0.12f, 0.15f, 0.22f, 0.95f);
+
+                // Avatar Icon
+                GameObject avBox = CreateUIRect("AvatarBox", slotObj.transform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(22f, 0f), new Vector2(30f, 30f));
+                avBox.GetComponent<RectTransform>().pivot = new Vector2(0.5f, 0.5f);
+                Image avBg = avBox.AddComponent<Image>();
+                avBg.color = new Color(0.18f, 0.24f, 0.35f);
+                Text avTxt = CreateText(avBox.transform, "Txt_Avatar", Vector2.zero, new Vector2(30f, 30f), "★", 18, TextAnchor.MiddleCenter, Color.white, FontStyle.Bold);
+
+                // Nickname
+                Text nickTxt = CreateText(slotObj.transform, "Txt_Nick", new Vector2(-90f, 0f), new Vector2(210f, 32f), $"Driver_0{i}", 18, TextAnchor.MiddleLeft, Color.white, FontStyle.Bold);
+
+                // Host Badge
+                GameObject hBadge = CreateUIRect("Badge_Host", slotObj.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(75f, 0f), new Vector2(115f, 26f));
+                hBadge.GetComponent<RectTransform>().pivot = new Vector2(0.5f, 0.5f);
+                Image hbImg = hBadge.AddComponent<Image>();
+                hbImg.color = new Color(0.85f, 0.65f, 0.1f, 0.9f);
+                CreateText(hBadge.transform, "Txt", Vector2.zero, new Vector2(115f, 26f), "👑 GOSPODARZ", 12, TextAnchor.MiddleCenter, Color.black, FontStyle.Bold);
+                hBadge.SetActive(i == 1);
+
+                // Client Badge
+                GameObject cBadge = CreateUIRect("Badge_Client", slotObj.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(75f, 0f), new Vector2(115f, 26f));
+                cBadge.GetComponent<RectTransform>().pivot = new Vector2(0.5f, 0.5f);
+                Image cbImg = cBadge.AddComponent<Image>();
+                cbImg.color = new Color(0.08f, 0.45f, 0.8f, 0.85f);
+                CreateText(cBadge.transform, "Txt", Vector2.zero, new Vector2(115f, 26f), "🏎️ GRACZ", 12, TextAnchor.MiddleCenter, Color.white, FontStyle.Bold);
+                cBadge.SetActive(false);
+
+                // Kick Button
+                Button kickBtn = CreateButton(slotObj.transform, "Btn_Kick", new Vector2(245f, 0f), new Vector2(95f, 30f), "WYRZUĆ", new Color(0.85f, 0.2f, 0.2f), Color.white, 14, FontStyle.Bold);
+                kickBtn.gameObject.SetActive(false);
+
+                // Empty Indicator
+                GameObject emptyInd = CreateUIRect("EmptyIndicator", slotObj.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 0f), new Vector2(400f, 30f));
+                emptyInd.GetComponent<RectTransform>().pivot = new Vector2(0.5f, 0.5f);
+                CreateText(emptyInd.transform, "Txt", Vector2.zero, new Vector2(400f, 30f), "— Wolne miejsce (Oczekiwanie na dołączenie) —", 14, TextAnchor.MiddleCenter, new Color(0.45f, 0.5f, 0.6f));
+                emptyInd.SetActive(i > 1);
+
+                var slotUI = new LobbyPlayerSlotUI
+                {
+                    slotRoot = slotObj,
+                    avatarText = avTxt,
+                    nicknameText = nickTxt,
+                    hostBadge = hBadge,
+                    clientBadge = cBadge,
+                    kickButton = kickBtn,
+                    emptyIndicator = emptyInd,
+                    boundClientId = ulong.MaxValue
+                };
+                slotList.Add(slotUI);
+            }
+
+            SetPrivateField(controller, "lobbyPlayerSlots", slotList);
+
+            // --- Bottom Action Area ---
+            Button startRaceBtn = CreateButton(card.transform, "Btn_LobbyStartRace", new Vector2(180f, -270f), new Vector2(340f, 66f),
+                "ROZPOCZNIJ WYŚCIG", new Color(0.04f, 0.78f, 0.55f), Color.white, 22, FontStyle.Bold);
+            SetPrivateField(controller, "lobbyStartRaceButton", startRaceBtn);
+
+            // Waiting Banner for Client
+            GameObject waitBanner = CreateUIRect("Banner_WaitingForHost", card.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(180f, -270f), new Vector2(340f, 66f));
+            waitBanner.GetComponent<RectTransform>().pivot = new Vector2(0.5f, 0.5f);
+            Image wbBg = waitBanner.AddComponent<Image>();
+            wbBg.color = new Color(0.14f, 0.18f, 0.26f, 0.9f);
+            CreateText(waitBanner.transform, "Txt", Vector2.zero, new Vector2(320f, 60f), "⏳ Oczekiwanie na start\nprzez gospodarza...", 17, TextAnchor.MiddleCenter, new Color(1f, 0.8f, 0.2f), FontStyle.Bold);
+            SetPrivateField(controller, "lobbyWaitingForHostBanner", waitBanner);
+            waitBanner.SetActive(false);
+
+            Button leaveBtn = CreateButton(card.transform, "Btn_LobbyLeave", new Vector2(-280f, -270f), new Vector2(250f, 66f),
+                "OPUŚĆ LOBBY", new Color(0.5f, 0.2f, 0.25f), Color.white, 20, FontStyle.Bold);
+            SetPrivateField(controller, "lobbyLeaveButton", leaveBtn);
+
+            return overlay;
+        }
+
+        private static void EnsureSceneNetworkManager()
+        {
+            var netObj = GameObject.Find("[NetworkManager]");
+            if (netObj == null)
+            {
+                var existingNetMgr = UnityEngine.Object.FindFirstObjectByType<NetworkManager>();
+                netObj = existingNetMgr != null ? existingNetMgr.gameObject : new GameObject("[NetworkManager]");
+            }
+
+            NetworkManager netMgr = netObj.GetComponent<NetworkManager>() ?? netObj.AddComponent<NetworkManager>();
+            UnityTransport transport = netObj.GetComponent<UnityTransport>() ?? netObj.AddComponent<UnityTransport>();
+            NetworkLobbyManager lobbyMgr = netObj.GetComponent<NetworkLobbyManager>() ?? netObj.AddComponent<NetworkLobbyManager>();
+
+            if (netMgr.NetworkConfig == null)
+            {
+                netMgr.NetworkConfig = new NetworkConfig();
+            }
+            netMgr.NetworkConfig.NetworkTransport = transport;
+
+            GameObject carPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/RacingCar_Netcode.prefab");
+            if (carPrefab != null)
+            {
+                netMgr.AddNetworkPrefab(carPrefab);
+                netMgr.NetworkConfig.PlayerPrefab = carPrefab;
+            }
+
+            NetworkConfigSynchronizer.ApplyConfiguration();
+            Debug.Log("<color=cyan>[MainMenuSceneBuilder]</color> NetworkManager & NetworkLobbyManager configured in MainMenu.");
         }
 
         private static GameObject BuildSettingsModal(Transform parent, MainMenuController controller)

@@ -62,15 +62,60 @@ namespace RacingMobile.Multiplayer
             targetRotation = transform.rotation;
         }
 
+        private void OnEnable()
+        {
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded += HandleSceneLoaded;
+        }
+
+        private void OnDisable()
+        {
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded -= HandleSceneLoaded;
+        }
+
+        private void HandleSceneLoaded(UnityEngine.SceneManagement.Scene scene, UnityEngine.SceneManagement.LoadSceneMode mode)
+        {
+            if (scene.name == "MainMenu")
+            {
+                car.IsLocallyControlled = false;
+                if (rb != null) rb.isKinematic = true;
+                SetWheelCollidersEnabled(false);
+                return;
+            }
+
+            // Race track scene loaded (e.g. SampleScene)
+            if (IsServer || IsOwner)
+            {
+                PositionCarOnStartingGrid();
+            }
+
+            if (IsOwner)
+            {
+                SetupLocalPlayer();
+                StartCoroutine(DeferredSetupLocalPlayer());
+            }
+            else
+            {
+                SetupRemoteOpponent();
+            }
+        }
+
         public override void OnNetworkSpawn()
         {
             base.OnNetworkSpawn();
 
-            // If an in-scene object exists and Netcode automatically spawns PlayerPrefab,
-            // disable the in-scene placeholder so only true player vehicles exist on the track.
-            if (NetworkObject != null && !NetworkObject.IsPlayerObject && NetworkManager.Singleton != null && NetworkManager.Singleton.NetworkConfig.PlayerPrefab != null)
+            // Only disable if this was an in-scene placed placeholder (not dynamically spawned)
+            if (NetworkObject != null && NetworkObject.IsSceneObject == true)
             {
                 gameObject.SetActive(false);
+                return;
+            }
+
+            // If spawned while still in MainMenu, keep stationary / kinematic
+            if (UnityEngine.SceneManagement.SceneManager.GetActiveScene().name == "MainMenu")
+            {
+                car.IsLocallyControlled = false;
+                if (rb != null) rb.isKinematic = true;
+                SetWheelCollidersEnabled(false);
                 return;
             }
 
@@ -82,6 +127,7 @@ namespace RacingMobile.Multiplayer
             if (IsOwner)
             {
                 SetupLocalPlayer();
+                StartCoroutine(DeferredSetupLocalPlayer());
             }
             else
             {
@@ -89,15 +135,41 @@ namespace RacingMobile.Multiplayer
             }
         }
 
-        private void PositionCarOnStartingGrid()
+        private System.Collections.IEnumerator DeferredSetupLocalPlayer()
         {
-            // For host (OwnerClientId 0), if already driving away from starting area, don't reset position
-            if (OwnerClientId == 0 && (Vector3.Distance(transform.position, Vector3.zero) > 10f || transform.position.z < -5f))
+            yield return null;
+            if (IsOwner) SetupLocalPlayer();
+            yield return new WaitForEndOfFrame();
+            if (IsOwner) SetupLocalPlayer();
+        }
+
+        public void PositionCarOnStartingGrid()
+        {
+            if (UnityEngine.SceneManagement.SceneManager.GetActiveScene().name == "MainMenu")
             {
                 return;
             }
 
-            int slotNumber = (int)OwnerClientId + 1;
+            // Determine slot index from Lobby player list or OwnerClientId
+            int slotIndex = 0;
+            if (NetworkLobbyManager.Instance != null && NetworkLobbyManager.Instance.CurrentPlayers.Count > 0)
+            {
+                var list = NetworkLobbyManager.Instance.CurrentPlayers;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (list[i].clientId == OwnerClientId)
+                    {
+                        slotIndex = i;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                slotIndex = (int)(OwnerClientId % 4);
+            }
+
+            int slotNumber = (slotIndex % 4) + 1;
             GameObject slotObj = GameObject.Find($"GridSlot_{slotNumber}");
 
             Vector3 spawnPos;
@@ -110,9 +182,9 @@ namespace RacingMobile.Multiplayer
             }
             else
             {
-                float xOffset = (OwnerClientId % 2 == 0) ? -3.5f : 3.5f;
-                float zOffset = (OwnerClientId / 2) * 10f;
-                spawnPos = new Vector3(xOffset, 0.57f, -zOffset);
+                float xOffset = (slotIndex % 2 == 0) ? -3.5f : 3.5f;
+                float zOffset = (slotIndex / 2) * 10f;
+                spawnPos = new Vector3(xOffset, 0.55f, -zOffset);
                 spawnRot = Quaternion.identity;
             }
 
@@ -141,7 +213,7 @@ namespace RacingMobile.Multiplayer
             }
         }
 
-        private void SetupLocalPlayer()
+        public void SetupLocalPlayer()
         {
             // 1. Enable local physical control
             car.IsLocallyControlled = true;
@@ -168,15 +240,15 @@ namespace RacingMobile.Multiplayer
                 hud.SetTargetCar(car);
             }
 
-            // 4. Connect Camera to follow this local vehicle
-            SmoothFollowCamera cam = FindFirstObjectByType<SmoothFollowCamera>();
+            // 4. Connect Camera to follow this local vehicle immediately
+            SmoothFollowCamera cam = SmoothFollowCamera.Instance ?? FindFirstObjectByType<SmoothFollowCamera>();
             if (cam != null)
             {
-                cam.SetTarget(transform);
+                cam.SetTarget(transform, snapImmediately: true);
             }
         }
 
-        private void SetupRemoteOpponent()
+        public void SetupRemoteOpponent()
         {
             // 1. Disable local control and set Rigidbody to kinematic
             car.IsLocallyControlled = false;
@@ -196,7 +268,7 @@ namespace RacingMobile.Multiplayer
                 inputMgr.SetTargetCar(null);
             }
 
-            SmoothFollowCamera cam = FindFirstObjectByType<SmoothFollowCamera>();
+            SmoothFollowCamera cam = SmoothFollowCamera.Instance ?? FindFirstObjectByType<SmoothFollowCamera>();
             if (cam != null && cam.Target == transform)
             {
                 cam.SetTarget(null);
@@ -207,6 +279,7 @@ namespace RacingMobile.Multiplayer
             hasReceivedSnapshot = false;
 
             // 4. Listen for incoming Netcode state changes
+            netState.OnValueChanged -= HandleRemoteSnapshotReceived;
             netState.OnValueChanged += HandleRemoteSnapshotReceived;
 
             if (netState.Value.Timestamp > 0)
