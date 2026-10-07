@@ -96,6 +96,11 @@ namespace RacingMobile.MobileUI
                 targetCar = null;
             }
 
+            if (PlayerPrefs.HasKey("Settings_SteeringMode"))
+            {
+                steerMode = (MobileSteerMode)PlayerPrefs.GetInt("Settings_SteeringMode", (int)steerMode);
+            }
+
             UpdateControlContainers();
         }
 

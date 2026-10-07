@@ -9,6 +9,10 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 #endif
 
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+#endif
+
 namespace RacingMobile.Multiplayer
 {
     /// <summary>
@@ -25,14 +29,6 @@ namespace RacingMobile.Multiplayer
         private static void OnSceneLoadedRuntime()
         {
             ApplyConfiguration();
-
-            // Spawn HUD GameObject if not in scene
-            if (GameObject.FindObjectOfType<NetworkConfigHUD>() == null)
-            {
-                GameObject hudObj = new GameObject("[NetcodeHUD]");
-                hudObj.AddComponent<NetworkConfigHUD>();
-                GameObject.DontDestroyOnLoad(hudObj);
-            }
         }
 
         public static void ApplyConfiguration()
@@ -151,6 +147,20 @@ namespace RacingMobile.Multiplayer
 
             if (!NetworkManager.Singleton.IsClient && !NetworkManager.Singleton.IsServer)
             {
+#if ENABLE_INPUT_SYSTEM
+                Keyboard kb = Keyboard.current;
+                if (kb != null)
+                {
+                    if (kb.hKey.wasPressedThisFrame)
+                    {
+                        StartHost();
+                    }
+                    else if (kb.cKey.wasPressedThisFrame)
+                    {
+                        StartClient();
+                    }
+                }
+#elif ENABLE_LEGACY_INPUT_MANAGER
                 if (Input.GetKeyDown(KeyCode.H))
                 {
                     StartHost();
@@ -159,6 +169,7 @@ namespace RacingMobile.Multiplayer
                 {
                     StartClient();
                 }
+#endif
             }
         }
 

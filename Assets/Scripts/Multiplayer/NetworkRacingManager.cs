@@ -45,7 +45,28 @@ namespace RacingMobile.Multiplayer
         {
             ResolveCarPrefab();
             SetupUIButtons();
-            UpdateStatus("Ready to connect. Choose Host or Client.");
+            if (connectionPanel != null) connectionPanel.SetActive(false);
+
+            // Auto-start session (Solo test drive or Host/Client configured from Main Menu)
+            AutoStartSession();
+        }
+
+        private void AutoStartSession()
+        {
+            if (NetworkManager.Singleton == null) return;
+            if (NetworkManager.Singleton.IsClient || NetworkManager.Singleton.IsServer) return;
+
+            // If client connection was prepared with an IP:
+            if (!LobbySessionData.IsHost && !string.IsNullOrEmpty(LobbySessionData.ServerAddress) && LobbySessionData.CurrentRoomCode == "DIRECT_IP")
+            {
+                SetTransportAddress(LobbySessionData.ServerAddress, LobbySessionData.ServerPort);
+                StartClient();
+            }
+            else
+            {
+                // Default: Start Host so local player's car is immediately spawned on the track!
+                StartHost();
+            }
         }
 
         public void ResolveCarPrefab()
@@ -218,33 +239,6 @@ namespace RacingMobile.Multiplayer
                 statusText.text = message;
             }
             Debug.Log($"[RacingNet] {message}");
-        }
-
-        private void OnGUI()
-        {
-            // Simple OnGUI fallback in case the canvas is hidden
-            if (NetworkManager.Singleton != null && !NetworkManager.Singleton.IsClient && !NetworkManager.Singleton.IsServer)
-            {
-                GUILayout.BeginArea(new Rect(15, 15, 170, 130), GUI.skin.box);
-                GUILayout.Label("Racing Multiplayer (NGO)");
-
-                if (GUILayout.Button("Start Host"))
-                {
-                    StartHost();
-                }
-
-                if (GUILayout.Button("Join Client"))
-                {
-                    StartClient();
-                }
-
-                if (GUILayout.Button("Start Server"))
-                {
-                    NetworkManager.Singleton.StartServer();
-                }
-
-                GUILayout.EndArea();
-            }
         }
     }
 }
